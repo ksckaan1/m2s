@@ -1,3 +1,3 @@
-module github.com/ksckaan1/mpftostruct
+module github.com/ksckaan1/m2s
 
 go 1.23.4

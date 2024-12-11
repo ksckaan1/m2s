@@ -1,4 +1,4 @@
-package mpftostruct
+package m2s
 
 import "errors"
 
