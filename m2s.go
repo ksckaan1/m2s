@@ -2,16 +2,18 @@ package m2s
 
 import (
 	"cmp"
+	"encoding"
+	"encoding/json"
 	"mime/multipart"
 	"reflect"
 	"strconv"
+	"unsafe"
 )
 
 type fieldType uint
 
 const (
 	value fieldType = iota
-	values
 	file
 	files
 )
@@ -60,16 +62,8 @@ func Convert(mpf *multipart.Form, v any) error {
 			continue
 		}
 
-		if ft == value { // if single value
-			err = convertValue(fieldType.Type, fieldValue, formValues[0])
-			if err != nil {
-				return err
-			}
-			continue
-		}
-
-		// if multiple values
-		err = convertValues(formValues, fieldType.Type, fieldValue)
+		// if value
+		err = convertValue(fieldType.Type, fieldValue, cmp.Or(formValues...))
 		if err != nil {
 			return err
 		}
@@ -104,6 +98,30 @@ func setFiles(formFiles []*multipart.FileHeader, fieldType reflect.Type, fieldVa
 }
 
 func convertValue(fieldType reflect.Type, fieldValue reflect.Value, formValue string) error {
+	// if implements encoding.TextUnmarshaler
+	if reflect.PointerTo(fieldType).Implements(reflect.TypeFor[encoding.TextUnmarshaler]()) {
+		ptrVal := reflect.New(fieldType)
+		result := ptrVal.MethodByName("UnmarshalText").
+			Call([]reflect.Value{reflect.ValueOf(string2ByteSlice(formValue))})
+		if !result[0].IsNil() {
+			return result[0].Interface().(error)
+		}
+		fieldValue.Set(ptrVal.Elem())
+		return nil
+	}
+
+	// if implements json.Unmarshaler
+	if reflect.PointerTo(fieldType).Implements(reflect.TypeFor[json.Unmarshaler]()) {
+		ptrVal := reflect.New(fieldType)
+		result := ptrVal.MethodByName("UnmarshalJSON").
+			Call([]reflect.Value{reflect.ValueOf(string2ByteSlice(formValue))})
+		if !result[0].IsNil() {
+			return result[0].Interface().(error)
+		}
+		fieldValue.Set(ptrVal.Elem())
+		return nil
+	}
+
 	switch fieldType.Kind() {
 	case reflect.Pointer:
 		v := reflect.New(fieldType.Elem())
@@ -144,30 +162,14 @@ func convertValue(fieldType reflect.Type, fieldValue reflect.Value, formValue st
 			return err
 		}
 		fieldValue.SetComplex(v)
-	default:
-		return ErrInvalidFieldType
-	}
-	return nil
-}
-
-func convertValues(formValues []string, fieldType reflect.Type, fieldValue reflect.Value) error {
-	list := reflect.MakeSlice(fieldType, 0, len(formValues))
-	for i := range formValues {
-		v := reflect.New(fieldType.Elem())
-		if fieldType.Elem().Kind() == reflect.Pointer {
-			v = reflect.New(fieldType.Elem().Elem())
-		}
-		err := convertValue(v.Type().Elem(), v.Elem(), formValues[i])
+	case reflect.Struct, reflect.Slice, reflect.Map:
+		err := json.Unmarshal(string2ByteSlice(formValue), fieldValue.Addr().Interface())
 		if err != nil {
 			return err
 		}
-		if fieldType.Elem().Kind() == reflect.Pointer {
-			list = reflect.Append(list, v)
-		} else {
-			list = reflect.Append(list, v.Elem())
-		}
+	default:
+		return ErrInvalidFieldType
 	}
-	fieldValue.Set(list)
 	return nil
 }
 
@@ -192,8 +194,9 @@ func determineFieldType(rt reflect.Type) fieldType {
 		rt.Kind() == reflect.Slice && rt.Elem() == reflect.TypeFor[multipart.FileHeader]() {
 		return files
 	}
-	if rt.Kind() == reflect.Slice {
-		return values
-	}
 	return value
+}
+
+func string2ByteSlice(s string) []byte {
+	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
