@@ -41,6 +41,6 @@ if err != nil {
 - Maps of all supported types (default: json decode)
 
 > [!NOTE]  
-> If field type implements `encoding.TextUnmarshaler` or `json.Unmarshaler`, decodes this field using `UnmarshalText` or `UnmarshalJSON`.
+> If field type implements `encoding.TextUnmarshaler`, decodes this field using `UnmarshalText` method.
 > 
 > Otherwise, decodes this field using `encoding/json.Unmarshal` or parsing primitive value.
