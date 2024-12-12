@@ -63,7 +63,7 @@ func Convert(mpf *multipart.Form, v any) error {
 		}
 
 		// if value
-		err = convertValue(fieldType.Type, fieldValue, cmp.Or(formValues...))
+		err = convertValue(fieldType.Type, fieldValue, fieldType.Name, cmp.Or(formValues...))
 		if err != nil {
 			return err
 		}
@@ -73,9 +73,6 @@ func Convert(mpf *multipart.Form, v any) error {
 }
 
 func setFile(fieldType reflect.Type, fieldValue reflect.Value, formFile *multipart.FileHeader) {
-	if formFile == nil {
-		return
-	}
 	if fieldType.Kind() != reflect.Pointer {
 		fieldValue.Set(reflect.ValueOf(formFile).Elem())
 		return
@@ -97,26 +94,14 @@ func setFiles(formFiles []*multipart.FileHeader, fieldType reflect.Type, fieldVa
 	fieldValue.Set(list)
 }
 
-func convertValue(fieldType reflect.Type, fieldValue reflect.Value, formValue string) error {
+func convertValue(fieldType reflect.Type, fieldValue reflect.Value, fieldName, formValue string) error {
 	// if implements encoding.TextUnmarshaler
 	if reflect.PointerTo(fieldType).Implements(reflect.TypeFor[encoding.TextUnmarshaler]()) {
 		ptrVal := reflect.New(fieldType)
 		result := ptrVal.MethodByName("UnmarshalText").
 			Call([]reflect.Value{reflect.ValueOf(string2ByteSlice(formValue))})
 		if !result[0].IsNil() {
-			return result[0].Interface().(error)
-		}
-		fieldValue.Set(ptrVal.Elem())
-		return nil
-	}
-
-	// if implements json.Unmarshaler
-	if reflect.PointerTo(fieldType).Implements(reflect.TypeFor[json.Unmarshaler]()) {
-		ptrVal := reflect.New(fieldType)
-		result := ptrVal.MethodByName("UnmarshalJSON").
-			Call([]reflect.Value{reflect.ValueOf(string2ByteSlice(formValue))})
-		if !result[0].IsNil() {
-			return result[0].Interface().(error)
+			return ErrParseFailed{fieldName, result[0].Interface().(error)}
 		}
 		fieldValue.Set(ptrVal.Elem())
 		return nil
@@ -125,7 +110,7 @@ func convertValue(fieldType reflect.Type, fieldValue reflect.Value, formValue st
 	switch fieldType.Kind() {
 	case reflect.Pointer:
 		v := reflect.New(fieldType.Elem())
-		err := convertValue(fieldType.Elem(), v.Elem(), formValue)
+		err := convertValue(fieldType.Elem(), v.Elem(), fieldName, formValue)
 		if err != nil {
 			return err
 		}
@@ -135,37 +120,37 @@ func convertValue(fieldType reflect.Type, fieldValue reflect.Value, formValue st
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		v, err := strconv.ParseInt(formValue, 10, 64)
 		if err != nil {
-			return err
+			return ErrParseFailed{Field: fieldName, Err: err}
 		}
 		fieldValue.SetInt(v)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		v, err := strconv.ParseUint(formValue, 10, 64)
 		if err != nil {
-			return err
+			return ErrParseFailed{Field: fieldName, Err: err}
 		}
 		fieldValue.SetUint(v)
 	case reflect.Float32, reflect.Float64:
 		v, err := strconv.ParseFloat(formValue, 64)
 		if err != nil {
-			return err
+			return ErrParseFailed{Field: fieldName, Err: err}
 		}
 		fieldValue.SetFloat(v)
 	case reflect.Bool:
 		v, err := strconv.ParseBool(formValue)
 		if err != nil {
-			return err
+			return ErrParseFailed{Field: fieldName, Err: err}
 		}
 		fieldValue.SetBool(v)
 	case reflect.Complex64, reflect.Complex128:
 		v, err := strconv.ParseComplex(formValue, 64)
 		if err != nil {
-			return err
+			return ErrParseFailed{Field: fieldName, Err: err}
 		}
 		fieldValue.SetComplex(v)
 	case reflect.Struct, reflect.Slice, reflect.Map:
 		err := json.Unmarshal(string2ByteSlice(formValue), fieldValue.Addr().Interface())
 		if err != nil {
-			return err
+			return ErrParseFailed{Field: fieldName, Err: err}
 		}
 	default:
 		return ErrInvalidFieldType

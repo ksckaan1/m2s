@@ -1,12 +1,23 @@
 package m2s
 
 import (
+	"encoding"
 	"errors"
 	"mime/multipart"
 	"reflect"
 	"testing"
 	"time"
 )
+
+// required for testing, not for normal usage
+
+var _ encoding.TextUnmarshaler = (*failedCustomText)(nil)
+
+type failedCustomText struct{}
+
+func (f *failedCustomText) UnmarshalText(_ []byte) error {
+	return errors.New("example error")
+}
 
 func TestConvert(t *testing.T) {
 	type CustomType struct {
@@ -21,7 +32,7 @@ func TestConvert(t *testing.T) {
 		fillMulipartForm func(*multipart.Form) error
 		v                any
 		wantValue        any
-		wantErr          error
+		checkError       func(*testing.T, error)
 	}{
 		{
 			name: "primitive types",
@@ -57,7 +68,11 @@ func TestConvert(t *testing.T) {
 				Key5: 10 + 11i,
 				Key6: true,
 			},
-			wantErr: nil,
+			checkError: func(t *testing.T, err error) {
+				if err != nil {
+					t.Fatal("unexpected error:", err)
+				}
+			},
 		},
 		{
 			name: "pointer types",
@@ -93,7 +108,11 @@ func TestConvert(t *testing.T) {
 				Key5: ptr[complex64](10 + 11i),
 				Key6: ptr(true),
 			},
-			wantErr: nil,
+			checkError: func(t *testing.T, err error) {
+				if err != nil {
+					t.Fatal("unexpected error:", err)
+				}
+			},
 		},
 		{
 			name: "file",
@@ -121,7 +140,11 @@ func TestConvert(t *testing.T) {
 				File1: &multipart.FileHeader{Filename: "file1.txt"},
 				File2: multipart.FileHeader{Filename: "file2.txt"},
 			},
-			wantErr: nil,
+			checkError: func(t *testing.T, err error) {
+				if err != nil {
+					t.Fatal("unexpected error:", err)
+				}
+			},
 		},
 		{
 			name: "file list",
@@ -161,7 +184,11 @@ func TestConvert(t *testing.T) {
 					{Filename: "file4.txt"},
 				},
 			},
-			wantErr: nil,
+			checkError: func(t *testing.T, err error) {
+				if err != nil {
+					t.Fatal("unexpected error:", err)
+				}
+			},
 		},
 		{
 			name: "time type",
@@ -181,7 +208,11 @@ func TestConvert(t *testing.T) {
 				Time1: &testTime,
 				Time2: testTime,
 			},
-			wantErr: nil,
+			checkError: func(t *testing.T, err error) {
+				if err != nil {
+					t.Fatal("unexpected error:", err)
+				}
+			},
 		},
 		{
 			name: "struct type",
@@ -207,7 +238,11 @@ func TestConvert(t *testing.T) {
 					Age:  21,
 				},
 			},
-			wantErr: nil,
+			checkError: func(t *testing.T, err error) {
+				if err != nil {
+					t.Fatal("unexpected error:", err)
+				}
+			},
 		},
 		{
 			name: "slice type",
@@ -237,7 +272,11 @@ func TestConvert(t *testing.T) {
 					},
 				},
 			},
-			wantErr: nil,
+			checkError: func(t *testing.T, err error) {
+				if err != nil {
+					t.Fatal("unexpected error:", err)
+				}
+			},
 		},
 		{
 			name: "map type",
@@ -256,7 +295,298 @@ func TestConvert(t *testing.T) {
 					"age":  float64(42),
 				},
 			},
-			wantErr: nil,
+			checkError: func(t *testing.T, err error) {
+				if err != nil {
+					t.Fatal("unexpected error:", err)
+				}
+			},
+		},
+		{
+			name: "skip unexported fields",
+			fillMulipartForm: func(mpf *multipart.Form) error {
+				mpf.Value["name"] = []string{`John`}
+				return nil
+			},
+			v: &struct {
+				name string `form:"name"`
+			}{},
+			wantValue: &struct {
+				name string `form:"name"`
+			}{
+				name: "",
+			},
+			checkError: func(t *testing.T, err error) {
+				if err != nil {
+					t.Fatal("unexpected error:", err)
+				}
+			},
+		},
+		{
+			name: "skip ignored fields",
+			fillMulipartForm: func(mpf *multipart.Form) error {
+				mpf.Value["Name"] = []string{`John`}
+				return nil
+			},
+			v: &struct {
+				Name string `form:"-"`
+			}{},
+			wantValue: &struct {
+				Name string `form:"-"`
+			}{
+				Name: "",
+			},
+			checkError: func(t *testing.T, err error) {
+				if err != nil {
+					t.Fatal("unexpected error:", err)
+				}
+			},
+		},
+		{
+			name: "skip not existing file",
+			fillMulipartForm: func(mpf *multipart.Form) error {
+				return nil
+			},
+			v: &struct {
+				File *multipart.FileHeader `form:"file"`
+			}{},
+			wantValue: &struct {
+				File *multipart.FileHeader `form:"file"`
+			}{
+				File: nil,
+			},
+			checkError: func(t *testing.T, err error) {
+				if err != nil {
+					t.Fatal("unexpected error:", err)
+				}
+			},
+		},
+		{
+			name: "skip not existing value",
+			fillMulipartForm: func(mpf *multipart.Form) error {
+				return nil
+			},
+			v: &struct {
+				Name string `form:"name"`
+			}{},
+			wantValue: &struct {
+				Name string `form:"name"`
+			}{
+				Name: "",
+			},
+			checkError: func(t *testing.T, err error) {
+				if err != nil {
+					t.Fatal("unexpected error:", err)
+				}
+			},
+		},
+		{
+			name: "error when non-pointer type",
+			fillMulipartForm: func(mpf *multipart.Form) error {
+				return nil
+			},
+			v:         struct{}{},
+			wantValue: struct{}{},
+			checkError: func(t *testing.T, err error) {
+				if !errors.Is(err, ErrValueMustBePointer) {
+					t.Fatal("unexpected error:", err)
+				}
+			},
+		},
+		{
+			name: "error when non-struct type",
+			fillMulipartForm: func(mpf *multipart.Form) error {
+				return nil
+			},
+			v:         ptr(""),
+			wantValue: ptr(""),
+			checkError: func(t *testing.T, err error) {
+				if !errors.Is(err, ErrValueMustBeStruct) {
+					t.Fatal("unexpected error:", err)
+				}
+			},
+		},
+		{
+			name: "error when nil value",
+			fillMulipartForm: func(mpf *multipart.Form) error {
+				return nil
+			},
+			v:         (*CustomType)(nil),
+			wantValue: (*CustomType)(nil),
+			checkError: func(t *testing.T, err error) {
+				if !errors.Is(err, ErrValueCannotBeNil) {
+					t.Fatal("unexpected error:", err)
+				}
+			},
+		},
+		{
+			name: "error when invalid field type",
+			fillMulipartForm: func(mpf *multipart.Form) error {
+				mpf.Value["invalid"] = []string{"invalid"}
+				return nil
+			},
+			v: &struct {
+				Invalid func() `form:"invalid"`
+			}{},
+			wantValue: &struct {
+				Invalid func() `form:"invalid"`
+			}{},
+			checkError: func(t *testing.T, err error) {
+				if !errors.Is(err, ErrInvalidFieldType) {
+					t.Fatal("unexpected error:", err)
+				}
+			},
+		},
+		{
+			name: "error when invalid json value",
+			fillMulipartForm: func(mpf *multipart.Form) error {
+				mpf.Value["invalid"] = []string{"invalid"}
+				return nil
+			},
+			v: &struct {
+				Invalid struct{} `form:"invalid"`
+			}{},
+			wantValue: &struct {
+				Invalid struct{} `form:"invalid"`
+			}{},
+			checkError: func(t *testing.T, err error) {
+				var terr ErrParseFailed
+				if !errors.As(err, &terr) || terr.Field != "Invalid" {
+					t.Fatal("unexpected error:", err)
+				}
+			},
+		},
+		{
+			name: "error when parsing int value",
+			fillMulipartForm: func(mpf *multipart.Form) error {
+				mpf.Value["value"] = []string{"invalid"}
+				return nil
+			},
+			v: &struct {
+				Value int `form:"value"`
+			}{},
+			wantValue: &struct {
+				Value int `form:"value"`
+			}{},
+			checkError: func(t *testing.T, err error) {
+				var terr ErrParseFailed
+				if !errors.As(err, &terr) || terr.Field != "Value" {
+					t.Fatal("unexpected error:", err)
+				}
+			},
+		},
+		{
+			name: "error when parsing uint value",
+			fillMulipartForm: func(mpf *multipart.Form) error {
+				mpf.Value["value"] = []string{"invalid"}
+				return nil
+			},
+			v: &struct {
+				Value uint `form:"value"`
+			}{},
+			wantValue: &struct {
+				Value uint `form:"value"`
+			}{},
+			checkError: func(t *testing.T, err error) {
+				var terr ErrParseFailed
+				if !errors.As(err, &terr) || terr.Field != "Value" {
+					t.Fatal("unexpected error:", err)
+				}
+			},
+		},
+		{
+			name: "error when parsing float value",
+			fillMulipartForm: func(mpf *multipart.Form) error {
+				mpf.Value["value"] = []string{"invalid"}
+				return nil
+			},
+			v: &struct {
+				Value float64 `form:"value"`
+			}{},
+			wantValue: &struct {
+				Value float64 `form:"value"`
+			}{},
+			checkError: func(t *testing.T, err error) {
+				var terr ErrParseFailed
+				if !errors.As(err, &terr) || terr.Field != "Value" {
+					t.Fatal("unexpected error:", err)
+				}
+			},
+		},
+		{
+			name: "error when parsing bool value",
+			fillMulipartForm: func(mpf *multipart.Form) error {
+				mpf.Value["value"] = []string{"invalid"}
+				return nil
+			},
+			v: &struct {
+				Value bool `form:"value"`
+			}{},
+			wantValue: &struct {
+				Value bool `form:"value"`
+			}{},
+			checkError: func(t *testing.T, err error) {
+				var terr ErrParseFailed
+				if !errors.As(err, &terr) || terr.Field != "Value" {
+					t.Fatal("unexpected error:", err)
+				}
+			},
+		},
+		{
+			name: "error when parsing complex value",
+			fillMulipartForm: func(mpf *multipart.Form) error {
+				mpf.Value["value"] = []string{"invalid"}
+				return nil
+			},
+			v: &struct {
+				Value complex64 `form:"value"`
+			}{},
+			wantValue: &struct {
+				Value complex64 `form:"value"`
+			}{},
+			checkError: func(t *testing.T, err error) {
+				var terr ErrParseFailed
+				if !errors.As(err, &terr) || terr.Field != "Value" {
+					t.Fatal("unexpected error:", err)
+				}
+			},
+		},
+		{
+			name: "error when parsing pointer value",
+			fillMulipartForm: func(mpf *multipart.Form) error {
+				mpf.Value["value"] = []string{"invalid"}
+				return nil
+			},
+			v: &struct {
+				Value *complex64 `form:"value"`
+			}{},
+			wantValue: &struct {
+				Value *complex64 `form:"value"`
+			}{},
+			checkError: func(t *testing.T, err error) {
+				var terr ErrParseFailed
+				if !errors.As(err, &terr) || terr.Field != "Value" {
+					t.Fatal("unexpected error:", err)
+				}
+			},
+		},
+		{
+			name: "error when parsing custom type implements encoding.TextUnmarshaler",
+			fillMulipartForm: func(mpf *multipart.Form) error {
+				mpf.Value["value"] = []string{"invalid"}
+				return nil
+			},
+			v: &struct {
+				Value failedCustomText `form:"value"`
+			}{},
+			wantValue: &struct {
+				Value failedCustomText `form:"value"`
+			}{},
+			checkError: func(t *testing.T, err error) {
+				var terr ErrParseFailed
+				if !errors.As(err, &terr) || terr.Field != "Value" {
+					t.Fatal("unexpected error:", err)
+				}
+			},
 		},
 	}
 
@@ -271,10 +601,7 @@ func TestConvert(t *testing.T) {
 				t.Fatal(err)
 			}
 			err = Convert(mpf, tt.v)
-			if !errors.Is(err, tt.wantErr) {
-				t.Errorf("Convert() error = %v, wantErr %v", err, tt.wantErr)
-				t.Fail()
-			}
+			tt.checkError(t, err)
 			if !reflect.DeepEqual(tt.v, tt.wantValue) {
 				t.Errorf("Convert() got = %v, want %v", tt.v, tt.wantValue)
 				t.Fail()
