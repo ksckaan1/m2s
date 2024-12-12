@@ -5,7 +5,7 @@
 [![Go report](https://goreportcard.com/badge/github.com/ksckaan1/m2s)](https://goreportcard.com/report/github.com/ksckaan1/m2s)
 ![m2s](https://img.shields.io/badge/coverage-100%25-green?style=flat)
 [![Contributors](https://img.shields.io/github/contributors/ksckaan1/m2s)](https://github.com/ksckaan1/m2s/graphs/contributors)
-[![License](https://img.shields.io/github/license/ksckaan1/m2s)](./LICENSE)
+[![LICENSE](https://img.shields.io/badge/LICENCE-MIT-orange?style=flat)](./LICENSE)
 
 ## Installation
 ```sh
