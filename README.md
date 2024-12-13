@@ -1,7 +1,7 @@
 # m2s (multipart form to struct converter)
 
 [![tag](https://img.shields.io/github/tag/ksckaan1/m2s.svg)](https://github.com/ksckaan1/m2s/releases)
-![Go Version](https://img.shields.io/badge/Go-%3E%3D%201.23.4-%23007d9c)
+![Go Version](https://img.shields.io/badge/Go-%3E%3D%201.22-%23007d9c)
 [![Go report](https://goreportcard.com/badge/github.com/ksckaan1/m2s)](https://goreportcard.com/report/github.com/ksckaan1/m2s)
 ![m2s](https://img.shields.io/badge/coverage-100%25-green?style=flat)
 [![Contributors](https://img.shields.io/github/contributors/ksckaan1/m2s)](https://github.com/ksckaan1/m2s/graphs/contributors)
